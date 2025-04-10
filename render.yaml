@@ -2,7 +2,8 @@ services:
   - type: web
     name: turbinix-backend
     env: python
-    buildCommand: ""
-    startCommand: python app.py
+    region: oregon
     plan: free
+    buildCommand: ""
+    startCommand: gunicorn app:app
     autoDeploy: true

@@ -3,17 +3,24 @@ from flask_cors import CORS
 import json
 import os
 import hashlib
+import random
+import string
+import time
 
 app = Flask(__name__)
 CORS(app)
 
-ENTRIES_FILE = 'entries.json'
 USERS_FILE = 'users.json'
+CODES_FILE = 'codes.json'
 
+# Load or initialize files
 def load_json(filename):
     if os.path.exists(filename):
         with open(filename, 'r') as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
     return []
 
 def save_json(data, filename):
@@ -23,70 +30,102 @@ def save_json(data, filename):
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-entries = load_json(ENTRIES_FILE)
+def generate_code(length=6):
+    return ''.join(random.choices(string.digits, k=length))
+
 users = load_json(USERS_FILE)
+codes = load_json(CODES_FILE)
 
-# ✅ API to get entries for the logged-in user
-@app.route('/api/entries/<username>', methods=['GET'])
-def get_entries(username):
-    user_entries = [e for e in entries if e.get("user") == username]
-    return jsonify(user_entries)
+# ✅ Check username availability
+@app.route('/api/check-username/<username>', methods=['GET'])
+def check_username(username):
+    if any(u['username'] == username for u in users):
+        return jsonify({"available": False}), 200
+    return jsonify({"available": True}), 200
 
-# ✅ Add entry for specific user
-@app.route('/api/entries/<username>', methods=['POST'])
-def add_entry(username):
+# ✅ Send verification code
+@app.route('/api/send-code', methods=['POST'])
+def send_code():
     data = request.get_json()
-    data["user"] = username
-    entries.append(data)
-    save_json(entries, ENTRIES_FILE)
-    return jsonify({"message": "Entry saved"}), 201
+    email = data.get('email')
+    now = time.time()
 
-@app.route('/api/entries/<username>/<int:index>', methods=['DELETE'])
-def delete_entry(username, index):
-    user_entries = [e for e in entries if e.get("user") == username]
-    if 0 <= index < len(user_entries):
-        full_index = entries.index(user_entries[index])
-        entries.pop(full_index)
-        save_json(entries, ENTRIES_FILE)
-        return jsonify({"message": "Entry deleted"}), 200
-    return jsonify({"error": "Invalid index"}), 400
+    for record in codes:
+        if record['email'] == email and now - record['timestamp'] < 60:
+            return jsonify({"error": "Please wait before requesting another code."}), 429
 
-@app.route('/api/entries/<username>/<int:index>', methods=['PUT'])
-def update_entry(username, index):
+    code = generate_code()
+    codes[:] = [c for c in codes if c['email'] != email]  # remove old code
+    codes.append({"email": email, "code": code, "timestamp": now})
+    save_json(codes, CODES_FILE)
+
+    print(f"Sending code {code} to {email} (mocked)")  # Replace with real email logic
+    return jsonify({"message": "Code sent"}), 200
+
+# ✅ Verify code
+@app.route('/api/verify-code', methods=['POST'])
+def verify_code():
     data = request.get_json()
-    user_entries = [e for e in entries if e.get("user") == username]
-    if 0 <= index < len(user_entries):
-        full_index = entries.index(user_entries[index])
-        data["user"] = username  # ensure user tag persists
-        entries[full_index] = data
-        save_json(entries, ENTRIES_FILE)
-        return jsonify({"message": "Entry updated"}), 200
-    return jsonify({"error": "Invalid index"}), 400
+    email = data.get('email')
+    code = data.get('code')
 
+    for record in codes:
+        if record['email'] == email and record['code'] == code:
+            return jsonify({"verified": True}), 200
+
+    return jsonify({"verified": False}), 400
+
+# ✅ Registration
 @app.route('/api/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    username = data.get('username')
-    password = hash_password(data.get('password'))
+    try:
+        data = request.get_json()
+        email = data['email']
+        username = data['username']
+        password = hash_password(data['password'])
+        first_name = data['first_name']
+        last_name = data['last_name']
 
-    if any(u['username'] == username for u in users):
-        return jsonify({"error": "User already exists"}), 409
+        if any(u.get('username') == username for u in users):
+            return jsonify({"error": "Username already taken"}), 409
 
-    users.append({'username': username, 'password': password})
-    save_json(users, USERS_FILE)
-    return jsonify({"message": "User registered"}), 201
+        if any(u.get('email') == email for u in users):
+            return jsonify({"error": "Email already used"}), 409
 
+        users.append({
+            'username': username,
+            'email': email,
+            'password': password,
+            'first_name': first_name,
+            'last_name': last_name
+        })
+        save_json(users, USERS_FILE)
+        return jsonify({"message": "User registered successfully"}), 201
+    except Exception as e:
+        print("Error in register:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+# ✅ Login with username or email
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = hash_password(data.get('password'))
+    try:
+        data = request.get_json()
+        identifier = data.get('identifier')  # username or email
+        password = data.get('password')
 
-    for user in users:
-        if user['username'] == username and user['password'] == password:
-            return jsonify({"message": "Login successful"}), 200
-    return jsonify({"error": "Invalid credentials"}), 401
+        if not identifier or not password:
+            return jsonify({"error": "Missing fields"}), 400
+
+        hashed_password = hash_password(password)
+
+        for user in users:
+            if (user.get('username') == identifier or user.get('email') == identifier) and user.get('password') == hashed_password:
+                return jsonify({"message": "Login successful", "username": user['username']}), 200
+
+        return jsonify({"error": "Invalid credentials"}), 401
+    except Exception as e:
+        print("Error in login:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
-
+    app.run(debug=True)
