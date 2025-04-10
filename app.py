@@ -13,7 +13,6 @@ CORS(app)
 USERS_FILE = 'users.json'
 CODES_FILE = 'codes.json'
 
-# Load or initialize files
 def load_json(filename):
     if os.path.exists(filename):
         with open(filename, 'r') as f:
@@ -36,14 +35,12 @@ def generate_code(length=6):
 users = load_json(USERS_FILE)
 codes = load_json(CODES_FILE)
 
-# ✅ Check username availability
 @app.route('/api/check-username/<username>', methods=['GET'])
 def check_username(username):
     if any(u['username'] == username for u in users):
         return jsonify({"available": False}), 200
     return jsonify({"available": True}), 200
 
-# ✅ Send verification code
 @app.route('/api/send-code', methods=['POST'])
 def send_code():
     data = request.get_json()
@@ -55,14 +52,13 @@ def send_code():
             return jsonify({"error": "Please wait before requesting another code."}), 429
 
     code = generate_code()
-    codes[:] = [c for c in codes if c['email'] != email]  # remove old code
+    codes[:] = [c for c in codes if c['email'] != email]
     codes.append({"email": email, "code": code, "timestamp": now})
     save_json(codes, CODES_FILE)
 
-    print(f"Sending code {code} to {email} (mocked)")  # Replace with real email logic
+    print(f"Sending code {code} to {email} (mocked)")
     return jsonify({"message": "Code sent"}), 200
 
-# ✅ Verify code
 @app.route('/api/verify-code', methods=['POST'])
 def verify_code():
     data = request.get_json()
@@ -75,7 +71,6 @@ def verify_code():
 
     return jsonify({"verified": False}), 400
 
-# ✅ Registration
 @app.route('/api/register', methods=['POST'])
 def register():
     try:
@@ -105,12 +100,11 @@ def register():
         print("Error in register:", str(e))
         return jsonify({"error": str(e)}), 500
 
-# ✅ Login with username or email
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
         data = request.get_json()
-        identifier = data.get('identifier')  # username or email
+        identifier = data.get('identifier')
         password = data.get('password')
 
         if not identifier or not password:
@@ -126,7 +120,7 @@ def login():
     except Exception as e:
         print("Error in login:", str(e))
         return jsonify({"error": str(e)}), 500
-# ✅ Mock Property Value Lookup
+
 @app.route('/api/property-value', methods=['GET'])
 def property_value():
     address = request.args.get('address', '').lower()
@@ -135,7 +129,7 @@ def property_value():
         '123 main st': {
             'value': 542000,
             'change': '+3.2%',
-            'image': 'https://images.unsplash.com/photo-1560185127-6a8cbb7a1a88',  # Example house image
+            'image': 'https://images.unsplash.com/photo-1560185127-6a8cbb7a1a88',
         },
         '456 elm st': {
             'value': 610000,
@@ -155,6 +149,3 @@ def property_value():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "ok"}), 200
-
-if __name__ == '__main__':
-    app.run(debug=True)
