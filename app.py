@@ -126,6 +126,35 @@ def login():
     except Exception as e:
         print("Error in login:", str(e))
         return jsonify({"error": str(e)}), 500
+# ✅ Mock Property Value Lookup
+@app.route('/api/property-value', methods=['GET'])
+def property_value():
+    address = request.args.get('address', '').lower()
+
+    mock_properties = {
+        '123 main st': {
+            'value': 542000,
+            'change': '+3.2%',
+            'image': 'https://images.unsplash.com/photo-1560185127-6a8cbb7a1a88',  # Example house image
+        },
+        '456 elm st': {
+            'value': 610000,
+            'change': '-1.1%',
+            'image': 'https://images.unsplash.com/photo-1599423300746-b62533397364',
+        }
+    }
+
+    result = mock_properties.get(address, {
+        'value': 480000,
+        'change': '+1.0%',
+        'image': 'https://images.unsplash.com/photo-1600607687920-4ff6f5ef9c07',
+    })
+
+    return jsonify(result)
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
