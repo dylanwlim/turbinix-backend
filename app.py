@@ -126,17 +126,18 @@ def property_value():
     address = request.args.get('address', '').lower()
 
     mock_properties = {
-        '123 main st': {
-            'value': 542000,
-            'change': '+3.2%',
-            'image': 'https://images.unsplash.com/photo-1560185127-6a8cbb7a1a88',
-        },
-        '456 elm st': {
-            'value': 610000,
-            'change': '-1.1%',
-            'image': 'https://images.unsplash.com/photo-1599423300746-b62533397364',
-        }
+    '123 main st': {
+        'value': 542000,
+        'change': '+3.2%',
+        'image': 'https://source.unsplash.com/featured/400x200?house',
+    },
+    '456 elm st': {
+        'value': 610000,
+        'change': '-1.1%',
+        'image': 'https://source.unsplash.com/featured/400x200?modern-home',
     }
+}
+    
 
     result = mock_properties.get(address, {
         'value': 480000,
