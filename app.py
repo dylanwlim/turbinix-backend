@@ -74,7 +74,7 @@ def send_code():
     msg['To'] = email
 
     try:
-        with smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT"))) as server:
+        with smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT", 587))) as server:
             server.starttls()
             server.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS"))
             server.send_message(msg)
