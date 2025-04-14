@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://localhost:3000", "https://turbinix.one"], supports_credentials=True)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "fallback-secret")
 
 USERS_FILE = 'users.json'
