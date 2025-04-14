@@ -66,6 +66,8 @@ def send_code():
         save_json(codes, CODES_FILE)
 
         brevo_key = os.getenv("BREVO_API_KEY")
+        print("🔍 BREVO_API_KEY loaded as:", brevo_key)
+
         if not brevo_key:
             print("❌ Missing Brevo API Key")
             return jsonify({"error": "Missing Brevo API Key"}), 500
@@ -91,8 +93,7 @@ def send_code():
             }
         )
 
-        print("✅ Brevo status:", res.status_code)
-        print(res.text)
+        print("📬 Brevo response:", res.status_code, res.text)
 
         if res.status_code >= 400:
             return jsonify({"error": "Failed to send email"}), 500
@@ -100,7 +101,7 @@ def send_code():
         return jsonify({"message": "Verification code sent!"}), 200
 
     except Exception as e:
-        print("❌ Exception:", str(e))
+        print("❌ send-code exception:", str(e))
         return jsonify({"error": "Server error", "details": str(e)}), 500
 
 @app.route('/api/verify-code', methods=['POST'])
