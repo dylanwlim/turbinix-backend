@@ -203,5 +203,81 @@ def property_value():
 def health_check():
     return jsonify({"status": "ok"}), 200
 
+@app.route('/api/request-reset-code', methods=['POST'])
+def request_reset_code():
+    data = request.get_json()
+    email = data.get('email')
+    now = time.time()
+
+    if not email:
+        return jsonify({"error": "Email required"}), 400
+
+    if not any(u['email'] == email for u in users):
+        return jsonify({"error": "No user with that email"}), 404
+
+    for record in codes:
+        if record['email'] == email and now - record['timestamp'] < 60:
+            return jsonify({"error": "Please wait before requesting another code."}), 429
+
+    code = generate_code()
+    codes[:] = [c for c in codes if c['email'] != email]
+    codes.append({"email": email, "code": code, "timestamp": now})
+    save_json(codes, CODES_FILE)
+
+    try:
+        brevo_key = os.getenv("BREVO_API_KEY")
+        if not brevo_key:
+            print("❌ Missing Brevo API Key")
+            return jsonify({"error": "Missing Brevo API Key"}), 500
+
+        res = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "accept": "application/json",
+                "api-key": brevo_key,
+                "content-type": "application/json"
+            },
+            json={
+                "sender": {"name": "Turbinix", "email": "no-reply@turbinix.one"},
+                "to": [{"email": email}],
+                "subject": "Turbinix Password Reset Code",
+                "htmlContent": f"""
+                <p>We received a request to reset your Turbinix password.</p>
+                <p>Your reset code is: <strong>{code}</strong></p>
+                <p>This code will expire soon. If you didn't request this, you can ignore it.</p>
+                """
+            }
+        )
+
+        print("🔐 Reset code sent to", email)
+        return jsonify({"message": "Reset code sent!"}), 200
+
+    except Exception as e:
+        print("❌ Brevo Error:", str(e))
+        return jsonify({"error": "Failed to send reset code"}), 500
+
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    data = request.get_json()
+    email = data.get('email')
+    code = data.get('code')
+    new_password = data.get('new_password')
+
+    if not email or not code or not new_password:
+        return jsonify({"error": "Missing fields"}), 400
+
+    for record in codes:
+        if record['email'] == email and record['code'] == code:
+            for user in users:
+                if user['email'] == email:
+                    user['password'] = hash_password(new_password)
+                    save_json(users, USERS_FILE)
+                    print("✅ Password reset for", email)
+                    return jsonify({"message": "Password updated!"}), 200
+            return jsonify({"error": "User not found"}), 404
+
+    return jsonify({"error": "Invalid or expired code"}), 400
+
 if __name__ == '__main__':
     app.run(debug=True)
