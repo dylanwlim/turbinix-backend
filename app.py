@@ -37,14 +37,36 @@ def hash_password(password):
 def generate_code(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
+def send_email(email, subject, html_content):
+    brevo_key = os.getenv("BREVO_API_KEY")
+    if not brevo_key:
+        print("❌ Missing Brevo API Key")
+        return False
+
+    res = requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={
+            "accept": "application/json",
+            "api-key": brevo_key,
+            "content-type": "application/json"
+        },
+        json={
+            "sender": {"name": "Turbinix", "email": "no-reply@turbinix.one"},
+            "to": [{"email": email}],
+            "subject": subject,
+            "htmlContent": html_content
+        }
+    )
+    print(f"📬 Email to {email}: {res.status_code}")
+    return res.status_code < 400
+
 users = load_json(USERS_FILE)
 codes = load_json(CODES_FILE)
 
 @app.route('/api/check-username/<username>', methods=['GET'])
 def check_username(username):
-    if any(u['username'] == username for u in users):
-        return jsonify({"available": False}), 200
-    return jsonify({"available": True}), 200
+    available = not any(u['username'] == username for u in users)
+    return jsonify({"available": available}), 200
 
 @app.route('/api/send-code', methods=['POST'])
 def send_code():
@@ -65,40 +87,18 @@ def send_code():
         codes.append({"email": email, "code": code, "timestamp": now})
         save_json(codes, CODES_FILE)
 
-        brevo_key = os.getenv("BREVO_API_KEY")
-        print("🔍 BREVO_API_KEY loaded as:", brevo_key)
+        html = f"""
+        <p>Hi there,</p>
+        <p>Your Turbinix verification code is: <strong>{code}</strong></p>
+        <p>This code is valid for 10 minutes.</p>
+        <p>If you didn’t request this, you can safely ignore it.</p>
+        <p>– The Turbinix Team</p>
+        """
 
-        if not brevo_key:
-            print("❌ Missing Brevo API Key")
-            return jsonify({"error": "Missing Brevo API Key"}), 500
-
-        res = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "accept": "application/json",
-                "api-key": brevo_key,
-                "content-type": "application/json"
-            },
-            json={
-                "sender": {"name": "Turbinix", "email": "no-reply@turbinix.one"},
-                "to": [{"email": email}],
-                "subject": "Your Turbinix Verification Code",
-                "htmlContent": f"""
-                    <p>Hi there,</p>
-                    <p>Your Turbinix verification code is: <strong>{code}</strong></p>
-                    <p>This code is valid for 10 minutes.</p>
-                    <p>If you didn’t request this, you can safely ignore it.</p>
-                    <p>– The Turbinix Team</p>
-                """
-            }
-        )
-
-        print("📬 Brevo response:", res.status_code, res.text)
-
-        if res.status_code >= 400:
+        if send_email(email, "Your Turbinix Verification Code", html):
+            return jsonify({"message": "Verification code sent!"}), 200
+        else:
             return jsonify({"error": "Failed to send email"}), 500
-
-        return jsonify({"message": "Verification code sent!"}), 200
 
     except Exception as e:
         print("❌ send-code exception:", str(e))
@@ -109,15 +109,20 @@ def verify_code():
     data = request.get_json()
     email = data.get('email')
     code = data.get('code')
+    now = time.time()
 
     if not email or not code:
         return jsonify({"verified": False, "error": "Missing fields"}), 400
 
     for record in codes:
         if record['email'] == email and record['code'] == code:
+            if now - record['timestamp'] > 600:
+                codes.remove(record)
+                save_json(codes, CODES_FILE)
+                return jsonify({"verified": False, "error": "Code expired"}), 400
             return jsonify({"verified": True}), 200
 
-    return jsonify({"verified": False}), 400
+    return jsonify({"verified": False, "error": "Invalid code"}), 400
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -145,7 +150,7 @@ def register():
         save_json(users, USERS_FILE)
         return jsonify({"message": "User registered successfully"}), 201
     except Exception as e:
-        print("Error in register:", str(e))
+        print("❌ register error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/login', methods=['POST'])
@@ -171,7 +176,7 @@ def login():
 
         return jsonify({"error": "Invalid credentials"}), 401
     except Exception as e:
-        print("Error in login:", str(e))
+        print("❌ login error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/property-value', methods=['GET'])
@@ -224,38 +229,17 @@ def request_reset_code():
     codes.append({"email": email, "code": code, "timestamp": now})
     save_json(codes, CODES_FILE)
 
-    try:
-        brevo_key = os.getenv("BREVO_API_KEY")
-        if not brevo_key:
-            print("❌ Missing Brevo API Key")
-            return jsonify({"error": "Missing Brevo API Key"}), 500
+    html = f"""
+    <p>We received a request to reset your Turbinix password.</p>
+    <p>Your reset code is: <strong>{code}</strong></p>
+    <p>This code will expire in 10 minutes.</p>
+    <p>If you didn’t request this, you can ignore it.</p>
+    """
 
-        res = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "accept": "application/json",
-                "api-key": brevo_key,
-                "content-type": "application/json"
-            },
-            json={
-                "sender": {"name": "Turbinix", "email": "no-reply@turbinix.one"},
-                "to": [{"email": email}],
-                "subject": "Turbinix Password Reset Code",
-                "htmlContent": f"""
-                <p>We received a request to reset your Turbinix password.</p>
-                <p>Your reset code is: <strong>{code}</strong></p>
-                <p>This code will expire soon. If you didn't request this, you can ignore it.</p>
-                """
-            }
-        )
-
-        print("🔐 Reset code sent to", email)
+    if send_email(email, "Turbinix Password Reset Code", html):
         return jsonify({"message": "Reset code sent!"}), 200
-
-    except Exception as e:
-        print("❌ Brevo Error:", str(e))
+    else:
         return jsonify({"error": "Failed to send reset code"}), 500
-
 
 @app.route('/api/reset-password', methods=['POST'])
 def reset_password():
@@ -263,21 +247,30 @@ def reset_password():
     email = data.get('email')
     code = data.get('code')
     new_password = data.get('new_password')
+    now = time.time()
 
     if not email or not code or not new_password:
         return jsonify({"error": "Missing fields"}), 400
 
     for record in codes:
         if record['email'] == email and record['code'] == code:
+            if now - record['timestamp'] > 600:
+                codes.remove(record)
+                save_json(codes, CODES_FILE)
+                return jsonify({"error": "Code expired. Please request a new one."}), 400
+
             for user in users:
                 if user['email'] == email:
                     user['password'] = hash_password(new_password)
+                    codes.remove(record)
                     save_json(users, USERS_FILE)
+                    save_json(codes, CODES_FILE)
                     print("✅ Password reset for", email)
                     return jsonify({"message": "Password updated!"}), 200
+
             return jsonify({"error": "User not found"}), 404
 
-    return jsonify({"error": "Invalid or expired code"}), 400
+    return jsonify({"error": "Invalid or already used code"}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
